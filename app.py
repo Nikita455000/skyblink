@@ -1,5 +1,7 @@
 """SkyBlink: find what moves in the infrared sky. NASA Space Apps 2026, team DeepSpace.
 
+SI disclosure: this code was written with AI assistance (Claude, Anthropic) and reviewed by the team.
+
 Run locally with:  streamlit run app.py
 """
 import concurrent.futures
