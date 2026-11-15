@@ -115,6 +115,32 @@ def _reproject(cut, grid, shape):
     return arr
 
 
+def fill_holes(img, iters=15):
+    """Fill empty pixels with their brightest neighbour, repeatedly.
+
+    The cores of very bright stars are empty in every image (the detector could not measure them);
+    this paints them white instead of leaving a black hole in the picture. Display only.
+    """
+    a = img.copy()
+    h, w = a.shape
+    holes = ~np.isfinite(a)
+    if not holes.any() or holes.all():
+        return a
+    bright, peak = np.nanpercentile(a, 99), np.nanmax(a)
+    for _ in range(iters):
+        empty = ~np.isfinite(a)
+        if not empty.any():
+            break
+        p = np.pad(a, 1, constant_values=np.nan)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            m = np.nanmax(np.stack([p[dy:dy + h, dx:dx + w] for dy in range(3) for dx in range(3)]), axis=0)
+        a[empty] = m[empty]
+    # holes inside a bright star become one even white disc; holes at the image edge keep the background
+    a[holes & (a > bright)] = peak
+    return a
+
+
 def build_epochs(cuts, grid, shape, detectors):
     """Aligned median image per visit, using only the chosen detectors."""
     sel = [c for c in cuts if c["detector"] in detectors]
@@ -132,7 +158,7 @@ def build_epochs(cuts, grid, shape, detectors):
             continue
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            img = np.nanmedian(np.stack(frames), axis=0)
+            img = fill_holes(np.nanmedian(np.stack(frames), axis=0))
         mjd = float(np.mean([sel[i]["mjd"] for i in g]))
         epochs.append({"image": img, "mjd": mjd, "year": mjd_to_year(mjd), "date": mjd_to_date(mjd), "n": len(frames)})
     return epochs
