@@ -30,7 +30,7 @@ DET_COLORS = {1: "#3B6FD8", 2: "#4FA3E0", 3: "#5CC8E8", 4: "#E8C547", 5: "#FF9A5
 DEFAULT_DETS = [4, 5, 6]
 
 st.markdown("""<style>
-  .block-container { padding-top: 2rem; }
+  .block-container { padding-top: 4.5rem; }  /* clears Streamlit's top toolbar */
   h1, h2, h3 { letter-spacing: -0.01em; }
   .sb-eyebrow { color:#FF7A45; font-weight:700; letter-spacing:.18em; text-transform:uppercase; font-size:.8rem; }
   .sb-muted { color:#B8C4D6; }
