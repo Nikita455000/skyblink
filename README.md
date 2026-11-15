@@ -3,6 +3,16 @@
 **NASA Space Apps Challenge 2026 · Challenge: “Planet X and SPHEREx” · Team DeepSpace**
 Nikita Tkachenko (team lead), Dmytro Simonov, Yehor Kaminskyi
 
+### ▶ [Open the live app: skyblink-deepspace.streamlit.app](https://skyblink-deepspace.streamlit.app)
+
+🎬 **Demo video (30 s, English subtitles):** [media/skyblink_demo_30s.mp4](media/skyblink_demo_30s.mp4)
+(the space scenes in the video are illustrations; everything below and in the app is real SPHEREx data)
+
+![WISE 0855 in real NASA SPHEREx images: four visits, then the difference image](media/wise0855_spherex.gif)
+
+*The coldest known brown dwarf, WISE 0855, in real SPHEREx images from May 2025 to May 2026.
+The last frame subtracts the first visit from the last: static stars disappear, the brown dwarf stays.*
+
 SkyBlink is a public web tool that turns NASA’s **SPHEREx** all-sky infrared survey into a time-lapse.
 Enter an object name or sky coordinates, and SkyBlink downloads every SPHEREx image of that spot,
 aligns them and plays the survey visits like a short video. Anything that moves or changes brightness —
@@ -59,6 +69,13 @@ app.py                 Streamlit user interface
 skyblink/archive.py    IRSA, Gaia and Sesame access, streamed FITS cutouts, wavelength lookup
 skyblink/imaging.py    alignment, visits, difference images, display, photometry
 skyblink/viewer.py     the HTML/JS blink viewer
-skyblink/data/         WCS-WAVE wavelength tables for detectors D1–D6
+skyblink/data/         WCS-WAVE wavelength tables for detectors D1–D6, saved image lists of the challenge targets
 scripts/smoke_test.py  end-to-end test on real data
+scripts/save_target_lists.py  saves image lists so the challenge targets work during IRSA search outages
+media/                 demo video and README animation
 ```
+
+## Use of AI
+
+Claude (Anthropic) helped write the code, the project texts and the demo video’s illustrative graphics;
+the demo video’s voice-over was generated with ElevenLabs. Everything was reviewed by the team.
