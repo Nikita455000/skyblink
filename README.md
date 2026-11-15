@@ -1,3 +1,7 @@
+
+
+https://github.com/user-attachments/assets/ea45e375-8466-408f-9013-d3ad0ae2093e
+
 # SkyBlink — find what moves in the infrared sky
 
 **NASA Space Apps Challenge 2026 · Challenge: “Planet X and SPHEREx” · Team DeepSpace**
