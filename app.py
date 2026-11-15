@@ -2,6 +2,7 @@
 
 Run locally with:  streamlit run app.py
 """
+import concurrent.futures
 import io
 import json
 
@@ -49,9 +50,12 @@ def images_at(ra, dec):
     return archive.query_images(ra, dec)
 
 
-@st.cache_data(show_spinner=False, ttl=86400)
-def gaia_near(ra, dec, radius):
-    return archive.query_gaia(ra, dec, radius)
+@st.cache_resource
+def _gaia_pool():
+    return concurrent.futures.ThreadPoolExecutor(max_workers=4)
+
+
+GAIA_POOL = _gaia_pool()
 
 
 def parse_coords(text):
@@ -140,6 +144,8 @@ def run_search(req):
         ra0, dec0 = (float(v) for v in imaging.propagate(tgt["ra"], tgt["dec"], tgt["pmra"], tgt["pmdec"], tgt["epoch"], mid))
         sel = imaging.select_for_blink(items, req["dets"])
         size = req["fov"] / 60 * 1.5
+        # Gaia is optional: ask for it in the background while the images download
+        gaia_job = GAIA_POOL.submit(archive.query_gaia, round(ra0, 4), round(dec0, 4), round(req["fov"] / 60 * 0.75, 4))
         status.write(f"Downloading {len(sel)} image cutouts from IRSA (cached after the first time)…")
         bar = st.progress(0.0)
         cuts = archive.fetch_cutouts(sel, ra0, dec0, size, progress=lambda d, n: bar.progress(d / n, text=f"{d} / {n} images"))
@@ -151,9 +157,10 @@ def run_search(req):
             return None
         status.write("Adding Gaia DR3 stars…")
         try:
-            gaia = gaia_near(round(ra0, 4), round(dec0, 4), round(req["fov"] / 60 * 0.75, 4))
+            gaia = gaia_job.result(timeout=20)
         except Exception:
             gaia = None
+            status.write("Gaia DR3 is not answering right now — showing the images without Gaia circles.")
         status.update(label=f"Ready — {len(epochs)} visits of {tgt['name']}", state="complete", expanded=False)
     res = {"req": req, "tgt": tgt, "items": items, "ra0": ra0, "dec0": dec0, "size": size, "mid": mid,
            "grid": grid, "shape": shape, "epochs": epochs, "gaia": gaia}

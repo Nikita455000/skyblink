@@ -109,12 +109,12 @@ class ArchiveUnavailable(IOError):
     """IRSA's search services are not answering (they return 502 during outages)."""
 
 
-def _tap_rows(query, tries=4):
+def _tap_rows(query, tries=4, timeout=(10, 60)):
     """Run an ADQL query on IRSA TAP and return (column names, rows of strings)."""
     last = "no answer"
     for k in range(tries):
         try:
-            r = _session.post(IRSA + "TAP/sync", timeout=120,
+            r = _session.post(IRSA + "TAP/sync", timeout=timeout,
                               data={"REQUEST": "doQuery", "LANG": "ADQL", "FORMAT": "csv", "QUERY": query})
             if r.status_code == 200 and not r.text.lstrip().startswith("<"):
                 rows = list(csv.reader(io.StringIO(r.text)))
@@ -122,13 +122,14 @@ def _tap_rows(query, tries=4):
             last = f"HTTP {r.status_code}"
         except requests.RequestException as e:
             last = type(e).__name__
-        time.sleep(min(3 * (k + 1), 10))
+        if k < tries - 1:
+            time.sleep(min(3 * (k + 1), 10))
     raise ArchiveUnavailable(f"IRSA TAP is not answering ({last})")
 
 
-def _tap(query, tries=4):
+def _tap(query, tries=4, timeout=(10, 60)):
     """TAP query as an astropy-like table (dict of columns)."""
-    cols, rows = _tap_rows(query, tries)
+    cols, rows = _tap_rows(query, tries, timeout)
     return {c: [r[i] for r in rows] for i, c in enumerate(cols)}
 
 
@@ -156,7 +157,7 @@ def query_images(ra, dec, max_age_hours=12):
             FROM spherex.artifact a
             JOIN spherex.plane p ON a.planeid = p.planeid
             WHERE 1 = CONTAINS(POINT('ICRS', {ra:.6f}, {dec:.6f}), p.poly)
-            ORDER BY p.time_bounds_lower""", tries=1 if bundled else 4)
+            ORDER BY p.time_bounds_lower""", *((1, (6, 15)) if bundled else (4, (10, 60))))
     except ArchiveUnavailable:
         if bundled is None:
             raise
@@ -340,21 +341,39 @@ def wavelength_astropy(header, table, x, y):
 GAIA_ESA = "https://gea.esac.esa.int/tap-server/tap/sync"
 
 
-def _gaia_esa(where):
-    """Gaia DR3 from ESA's own archive (usually a few seconds)."""
-    r = _session.post(GAIA_ESA, timeout=30, data={
-        "REQUEST": "doQuery", "LANG": "ADQL", "FORMAT": "csv",
-        "QUERY": f"SELECT ra, dec, pmra, pmdec, phot_g_mean_mag FROM gaiadr3.gaia_source WHERE {where}"})
+GAIA_VIZIER = "https://tapvizier.cds.unistra.fr/TAPVizieR/tap/sync"
+GAIA_TIMEOUT = (8, 25)  # connect, read: Gaia circles are optional, so never wait long for them
+
+
+def _csv_tap(url, query):
+    r = _session.post(url, timeout=GAIA_TIMEOUT,
+                      data={"REQUEST": "doQuery", "LANG": "ADQL", "FORMAT": "csv", "QUERY": query})
     r.raise_for_status()
     rows = list(csv.reader(io.StringIO(r.text)))
-    if not rows or rows[0][:2] != ["ra", "dec"]:
+    if not rows or len(rows[0]) != 5:
         raise IOError("unexpected Gaia answer")
     return [[float(v) if v else 0.0 for v in row] for row in rows[1:]]
 
 
-def _gaia_irsa(where):
-    """Gaia DR3 from IRSA's copy (fallback; slow in crowded fields)."""
-    _, rows = _tap_rows(f"SELECT ra, dec, pmra, pmdec, phot_g_mean_mag FROM gaia_dr3_source WHERE {where}")
+def _gaia_esa(ra, dec, radius, gmax):
+    """Gaia DR3 from ESA's own archive (usually a few seconds)."""
+    return _csv_tap(GAIA_ESA, f"""SELECT ra, dec, pmra, pmdec, phot_g_mean_mag FROM gaiadr3.gaia_source
+        WHERE 1 = CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', {ra:.6f}, {dec:.6f}, {radius:.5f}))
+        AND phot_g_mean_mag < {gmax}""")
+
+
+def _gaia_vizier(ra, dec, radius, gmax):
+    """Gaia DR3 from the CDS VizieR copy (catalogue I/355)."""
+    return _csv_tap(GAIA_VIZIER, f"""SELECT RA_ICRS, DE_ICRS, pmRA, pmDE, Gmag FROM "I/355/gaiadr3"
+        WHERE 1 = CONTAINS(POINT('ICRS', RA_ICRS, DE_ICRS), CIRCLE('ICRS', {ra:.6f}, {dec:.6f}, {radius:.5f}))
+        AND Gmag < {gmax}""")
+
+
+def _gaia_irsa(ra, dec, radius, gmax):
+    """Gaia DR3 from IRSA's copy (slow in crowded fields)."""
+    _, rows = _tap_rows(f"""SELECT ra, dec, pmra, pmdec, phot_g_mean_mag FROM gaia_dr3_source
+        WHERE 1 = CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', {ra:.6f}, {dec:.6f}, {radius:.5f}))
+        AND phot_g_mean_mag < {gmax}""", tries=1, timeout=GAIA_TIMEOUT)
     return [[float(v) if v else 0.0 for v in row] for row in rows]
 
 
@@ -365,12 +384,15 @@ def query_gaia(ra, dec, radius_deg, gmax=19.0):
     if os.path.exists(path):
         z = np.load(path)
         return {k: z[k] for k in z.files}
-    where = (f"1 = CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', {ra:.6f}, {dec:.6f}, {radius_deg:.5f})) "
-             f"AND phot_g_mean_mag < {gmax}")
-    try:
-        rows = _gaia_esa(where)
-    except Exception:
-        rows = _gaia_irsa(where)
+    rows, errors = None, []
+    for source in (_gaia_esa, _gaia_vizier, _gaia_irsa):
+        try:
+            rows = source(ra, dec, radius_deg, gmax)
+            break
+        except Exception as e:
+            errors.append(f"{source.__name__}: {type(e).__name__}")
+    if rows is None:
+        raise ArchiveUnavailable("Gaia DR3 unavailable (" + "; ".join(errors) + ")")
     a = np.array(rows, float).reshape(-1, 5)
     out = {"ra": a[:, 0], "dec": a[:, 1], "pmra": a[:, 2], "pmdec": a[:, 3], "g": a[:, 4]}
     np.savez_compressed(path, **out)
