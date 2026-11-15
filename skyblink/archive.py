@@ -157,7 +157,7 @@ def query_images(ra, dec, max_age_hours=12):
             FROM spherex.artifact a
             JOIN spherex.plane p ON a.planeid = p.planeid
             WHERE 1 = CONTAINS(POINT('ICRS', {ra:.6f}, {dec:.6f}), p.poly)
-            ORDER BY p.time_bounds_lower""", *((1, (6, 15)) if bundled else (4, (10, 60))))
+            ORDER BY p.time_bounds_lower""", *((1, (6, 15)) if bundled else (2, (8, 30))))
     except ArchiveUnavailable:
         if bundled is None:
             raise
