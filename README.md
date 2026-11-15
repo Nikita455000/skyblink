@@ -53,6 +53,19 @@ asteroids, comets, brown dwarfs, variable stars — jumps out.
 
 SPHEREx pixels are 6.15″ wide: nearby sources can blend, and slow movers need several visits to show.
 
+## Speed and archive outages
+
+IRSA’s search services (TAP and SIA) can go down while its image server keeps working — this happened on
+15 November 2026, during the hackathon. SkyBlink keeps the challenge targets working anyway:
+
+| Target | Saved with the app | What you get when IRSA search is down |
+|---|---|---|
+| Epsilon Indi B, RW Aurigae, R Draconis | image list + all cutouts of the default view (4′, D4–D6) and of the spectrum | the full app, opening in ~5–20 s |
+| WISE 0855, Barnard’s Star | a saved SkyBlink time-lapse made from real SPHEREx images on 14 Nov 2026 | blink and difference views, clearly labelled as saved |
+
+Everything switches back to live data automatically when IRSA answers. Any other position needs IRSA search.
+`scripts/save_target_lists.py` and `scripts/build_seed.py` refresh the saved lists and cutout packs.
+
 ## Run locally
 
 ```bash
@@ -69,9 +82,11 @@ app.py                 Streamlit user interface
 skyblink/archive.py    IRSA, Gaia and Sesame access, streamed FITS cutouts, wavelength lookup
 skyblink/imaging.py    alignment, visits, difference images, display, photometry
 skyblink/viewer.py     the HTML/JS blink viewer
-skyblink/data/         WCS-WAVE wavelength tables for detectors D1–D6, saved image lists of the challenge targets
+skyblink/data/         WCS-WAVE wavelength tables for detectors D1–D6 and, for the challenge targets:
+                       targets/ (image lists), seed/ (cutout packs), snapshots/ (saved time-lapses)
 scripts/smoke_test.py  end-to-end test on real data
 scripts/save_target_lists.py  saves image lists so the challenge targets work during IRSA search outages
+scripts/build_seed.py  packs the default-view cutouts of the challenge targets
 media/                 demo video and README animation
 ```
 
