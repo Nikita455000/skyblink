@@ -5,8 +5,10 @@ Nikita Tkachenko (team lead), Dmytro Simonov, Yehor Kaminskyi
 
 ### ▶ [Open the live app: skyblink-deepspace.streamlit.app](https://skyblink-deepspace.streamlit.app)
 
-🎬 **Demo video (30 s, English subtitles):** [media/skyblink_demo_30s.mp4](media/skyblink_demo_30s.mp4)
+🎬 **Demo video (30 s, English subtitles)** · [download MP4](https://github.com/Nikita455000/skyblink/raw/main/media/skyblink_demo_30s.mp4)
 (the space scenes in the video are illustrations; everything below and in the app is real SPHEREx data)
+
+VIDEO-HERE
 
 ![WISE 0855 in real NASA SPHEREx images: four visits, then the difference image](media/wise0855_spherex.gif)
 
