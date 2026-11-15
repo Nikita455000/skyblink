@@ -46,8 +46,8 @@ def resolve(name):
 
 
 @st.cache_data(show_spinner=False, ttl=6 * 3600)
-def images_at(ra, dec):
-    return archive.query_images(ra, dec)
+def images_at(ra, dec, quick=False):
+    return archive.query_images(ra, dec, quick=quick)
 
 
 @st.cache_resource
@@ -129,9 +129,16 @@ def run_search(req):
         # high proper-motion stars move arcminutes in decades: search where the object is now
         ra_now, dec_now = (float(v) for v in imaging.propagate(tgt["ra"], tgt["dec"], tgt["pmra"], tgt["pmdec"], tgt["epoch"], 2026.0))
         status.write("Finding SPHEREx images of this spot…")
+        snap = archive.snapshot(tgt["name"])
         try:
-            items = images_at(round(ra_now, 5), round(dec_now, 5))
+            items = images_at(round(ra_now, 5), round(dec_now, 5), quick=snap is not None)
         except archive.ArchiveUnavailable:
+            if snap is not None:
+                status.update(label="IRSA search is down — showing a saved SkyBlink result", state="complete",
+                              expanded=False)
+                res = {"snapshot": snap, "tgt": tgt, "req": req}
+                st.session_state.result_key, st.session_state.result = key, res
+                return res
             status.update(label="NASA’s IRSA search service is not answering right now", state="error")
             st.warning("IRSA (NASA/IPAC Infrared Science Archive) is temporarily not answering image searches, "
                        "so this position can’t be looked up right now. Challenge targets with saved image lists "
@@ -260,6 +267,16 @@ res = run_search(req)
 if res is None:
     st.stop()
 st.query_params.from_dict(share_params(req))
+
+if "snapshot" in res:
+    snap = res["snapshot"]
+    st.markdown('<div class="sb-eyebrow">SkyBlink · saved SPHEREx time-lapse</div>', unsafe_allow_html=True)
+    st.title(snap["name"])
+    st.info(f"NASA’s IRSA image search is temporarily down, so here is a SkyBlink result made from real SPHEREx "
+            f"images on {snap['made']} ({len(snap['dates'])} visits, {snap['dates'][0]} to {snap['dates'][-1]}). "
+            "Live search, Gaia circles and spectra come back automatically once IRSA answers again.")
+    components.html(viewer.viewer_html(snap["payload"]), height=800)
+    st.stop()
 
 tgt, ep = res["tgt"], res["epochs"]
 st.markdown('<div class="sb-eyebrow">SkyBlink · SPHEREx time-lapse</div>', unsafe_allow_html=True)

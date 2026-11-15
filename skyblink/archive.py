@@ -145,8 +145,22 @@ def _bundled_items(ra, dec, radius=0.1):
     return None
 
 
-def query_images(ra, dec, max_age_hours=12):
-    """All SPHEREx spectral images that cover (ra, dec), oldest first. Cached on disk for a few hours."""
+def snapshot(name):
+    """A saved SkyBlink result (viewer frames) for a challenge target, shown while IRSA search is down."""
+    folder = os.path.join(os.path.dirname(__file__), "data", "snapshots")
+    for f in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+        with open(os.path.join(folder, f), encoding="utf-8") as fh:
+            snap = json.load(fh)
+        if snap["name"] == name:
+            return snap
+    return None
+
+
+def query_images(ra, dec, max_age_hours=12, quick=False):
+    """All SPHEREx spectral images that cover (ra, dec), oldest first. Cached on disk for a few hours.
+
+    quick=True asks IRSA only once, briefly: for targets that have a saved fallback to show instead.
+    """
     path = _cache_path(f"tap_{ra:.4f}_{dec:+.4f}.json")
     if os.path.exists(path) and time.time() - os.path.getmtime(path) < max_age_hours * 3600:
         with open(path, encoding="utf-8") as f:
@@ -159,7 +173,7 @@ def query_images(ra, dec, max_age_hours=12):
         FROM spherex.artifact a
         JOIN spherex.plane p ON a.planeid = p.planeid
         WHERE 1 = CONTAINS(POINT('ICRS', {ra:.6f}, {dec:.6f}), p.poly)
-        ORDER BY p.time_bounds_lower""", 2, (8, 30))
+        ORDER BY p.time_bounds_lower""", *((1, (6, 12)) if quick else (2, (8, 30))))
     items = [{"uri": u, "mjd": float(m), "detector": int(b[-1])}
              for u, m, b in zip(t["uri"], t["time_bounds_lower"], t["energy_bandpassname"])]
     with open(path, "w", encoding="utf-8") as f:
