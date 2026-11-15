@@ -17,7 +17,6 @@ import numpy as np
 import requests
 from astropy.io import fits
 from astropy.wcs import WCS
-from astroquery.ipac.irsa import Irsa
 
 logging.getLogger("astropy").setLevel(logging.ERROR)
 warnings.filterwarnings("ignore", module="astropy")
@@ -106,14 +105,42 @@ def resolve_name(name):
 # ---------------------------------------------------------------- SPHEREx image search
 
 
-def _tap(query, tries=3):
+class ArchiveUnavailable(IOError):
+    """IRSA's search services are not answering (they return 502 during outages)."""
+
+
+def _tap_rows(query, tries=4):
+    """Run an ADQL query on IRSA TAP and return (column names, rows of strings)."""
+    last = "no answer"
     for k in range(tries):
         try:
-            return Irsa.query_tap(query).to_table()
-        except Exception:
-            if k == tries - 1:
-                raise
-            time.sleep(2 * (k + 1))
+            r = _session.post(IRSA + "TAP/sync", timeout=120,
+                              data={"REQUEST": "doQuery", "LANG": "ADQL", "FORMAT": "csv", "QUERY": query})
+            if r.status_code == 200 and not r.text.lstrip().startswith("<"):
+                rows = list(csv.reader(io.StringIO(r.text)))
+                return rows[0], rows[1:]
+            last = f"HTTP {r.status_code}"
+        except requests.RequestException as e:
+            last = type(e).__name__
+        time.sleep(min(3 * (k + 1), 10))
+    raise ArchiveUnavailable(f"IRSA TAP is not answering ({last})")
+
+
+def _tap(query, tries=4):
+    """TAP query as an astropy-like table (dict of columns)."""
+    cols, rows = _tap_rows(query, tries)
+    return {c: [r[i] for r in rows] for i, c in enumerate(cols)}
+
+
+def _bundled_items(ra, dec, radius=0.1):
+    """Image lists shipped with the app for the challenge targets, used when IRSA search is down."""
+    folder = os.path.join(os.path.dirname(__file__), "data", "targets")
+    for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+        with open(os.path.join(folder, name), encoding="utf-8") as f:
+            t = json.load(f)
+        if abs(t["dec"] - dec) < radius and abs((t["ra"] - ra + 180) % 360 - 180) * math.cos(math.radians(dec)) < radius:
+            return t["items"]
+    return None
 
 
 def query_images(ra, dec, max_age_hours=12):
@@ -122,13 +149,19 @@ def query_images(ra, dec, max_age_hours=12):
     if os.path.exists(path) and time.time() - os.path.getmtime(path) < max_age_hours * 3600:
         with open(path, encoding="utf-8") as f:
             return json.load(f)
-    t = _tap(f"""
-        SELECT a.uri, p.time_bounds_lower, p.energy_bandpassname
-        FROM spherex.artifact a
-        JOIN spherex.plane p ON a.planeid = p.planeid
-        WHERE 1 = CONTAINS(POINT('ICRS', {ra:.6f}, {dec:.6f}), p.poly)
-        ORDER BY p.time_bounds_lower""")
-    items = [{"uri": str(u), "mjd": float(m), "detector": int(str(b)[-1])}
+    bundled = _bundled_items(ra, dec)
+    try:
+        t = _tap(f"""
+            SELECT a.uri, p.time_bounds_lower, p.energy_bandpassname
+            FROM spherex.artifact a
+            JOIN spherex.plane p ON a.planeid = p.planeid
+            WHERE 1 = CONTAINS(POINT('ICRS', {ra:.6f}, {dec:.6f}), p.poly)
+            ORDER BY p.time_bounds_lower""", tries=1 if bundled else 4)
+    except ArchiveUnavailable:
+        if bundled is None:
+            raise
+        return bundled
+    items = [{"uri": u, "mjd": float(m), "detector": int(b[-1])}
              for u, m, b in zip(t["uri"], t["time_bounds_lower"], t["energy_bandpassname"])]
     with open(path, "w", encoding="utf-8") as f:
         json.dump(items, f)
@@ -321,9 +354,8 @@ def _gaia_esa(where):
 
 def _gaia_irsa(where):
     """Gaia DR3 from IRSA's copy (fallback; slow in crowded fields)."""
-    t = _tap(f"SELECT ra, dec, pmra, pmdec, phot_g_mean_mag FROM gaia_dr3_source WHERE {where}")
-    cols = [np.ma.filled(np.ma.asarray(t[c], float), 0.0) for c in ("ra", "dec", "pmra", "pmdec", "phot_g_mean_mag")]
-    return [list(r) for r in zip(*cols)]
+    _, rows = _tap_rows(f"SELECT ra, dec, pmra, pmdec, phot_g_mean_mag FROM gaia_dr3_source WHERE {where}")
+    return [[float(v) if v else 0.0 for v in row] for row in rows]
 
 
 def query_gaia(ra, dec, radius_deg, gmax=19.0):

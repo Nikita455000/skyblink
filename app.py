@@ -125,7 +125,14 @@ def run_search(req):
         # high proper-motion stars move arcminutes in decades: search where the object is now
         ra_now, dec_now = (float(v) for v in imaging.propagate(tgt["ra"], tgt["dec"], tgt["pmra"], tgt["pmdec"], tgt["epoch"], 2026.0))
         status.write("Finding SPHEREx images of this spot…")
-        items = images_at(round(ra_now, 5), round(dec_now, 5))
+        try:
+            items = images_at(round(ra_now, 5), round(dec_now, 5))
+        except archive.ArchiveUnavailable:
+            status.update(label="NASA’s IRSA search service is not answering right now", state="error")
+            st.warning("IRSA (NASA/IPAC Infrared Science Archive) is temporarily not answering image searches. "
+                       "The five challenge targets on the left still work from saved image lists — "
+                       "or try this position again in a few minutes.")
+            return None
         if not items:
             status.update(label="SPHEREx has not observed this position yet", state="error")
             return None
