@@ -9,6 +9,7 @@ import math
 import os
 import re
 import tempfile
+import threading
 import time
 import urllib.parse
 import warnings
@@ -151,17 +152,14 @@ def query_images(ra, dec, max_age_hours=12):
         with open(path, encoding="utf-8") as f:
             return json.load(f)
     bundled = _bundled_items(ra, dec)
-    try:
-        t = _tap(f"""
-            SELECT a.uri, p.time_bounds_lower, p.energy_bandpassname
-            FROM spherex.artifact a
-            JOIN spherex.plane p ON a.planeid = p.planeid
-            WHERE 1 = CONTAINS(POINT('ICRS', {ra:.6f}, {dec:.6f}), p.poly)
-            ORDER BY p.time_bounds_lower""", *((1, (6, 15)) if bundled else (2, (8, 30))))
-    except ArchiveUnavailable:
-        if bundled is None:
-            raise
-        return bundled
+    if bundled is not None:
+        return bundled  # challenge targets: saved lists are instant and survive IRSA outages
+    t = _tap(f"""
+        SELECT a.uri, p.time_bounds_lower, p.energy_bandpassname
+        FROM spherex.artifact a
+        JOIN spherex.plane p ON a.planeid = p.planeid
+        WHERE 1 = CONTAINS(POINT('ICRS', {ra:.6f}, {dec:.6f}), p.poly)
+        ORDER BY p.time_bounds_lower""", 2, (8, 30))
     items = [{"uri": u, "mjd": float(m), "detector": int(b[-1])}
              for u, m, b in zip(t["uri"], t["time_bounds_lower"], t["energy_bandpassname"])]
     with open(path, "w", encoding="utf-8") as f:
@@ -248,14 +246,39 @@ def _wcs_header(header):
     return fits.Header([(c.keyword, c.value) for c in header.cards if _WCS_KEY.match(c.keyword)]).tostring()
 
 
+SEED_DIR = os.path.join(os.path.dirname(__file__), "data", "seed")
+_seed = None
+_seed_lock = threading.Lock()
+
+
+def _seed_lookup(key):
+    """Cutouts shipped with the app for the challenge targets' default view (one .npz per target)."""
+    global _seed
+    with _seed_lock:  # the downloads run in threads, and a zip file must not be read by two at once
+        if _seed is None:
+            _seed = [np.load(os.path.join(SEED_DIR, f)) for f in sorted(os.listdir(SEED_DIR))
+                     if f.endswith(".npz")] if os.path.isdir(SEED_DIR) else []
+        for z in _seed:
+            if key + "_data" in z.files:
+                return {"data": z[key + "_data"], "soft": z[key + "_soft"], "header": str(z[key + "_hdr"])}
+    return None
+
+
+def cutout_key(item, ra, dec, size_deg):
+    return hashlib.sha1(f"{CACHE_VERSION}|{item['uri']}|{ra:.5f}|{dec:.5f}|{size_deg:.4f}".encode()).hexdigest()
+
+
 def fetch_cutout(item, ra, dec, size_deg):
     """One SPHEREx cutout as {data, soft, header, mjd, detector}.
 
     data is IMAGE minus ZODI with unusable pixels set to NaN; soft marks pixels to skip when measuring fluxes.
     """
-    key = hashlib.sha1(f"{CACHE_VERSION}|{item['uri']}|{ra:.5f}|{dec:.5f}|{size_deg:.4f}".encode()).hexdigest()
+    key = cutout_key(item, ra, dec, size_deg)
     path = _cache_path(key + ".npz")
     meta = {k: item[k] for k in ("uri", "mjd", "detector")}
+    seeded = _seed_lookup(key)
+    if seeded:
+        return {**seeded, **meta}
     if os.path.exists(path):
         z = np.load(path)
         return {"data": z["data"], "soft": z["soft"], "header": str(z["header"]), **meta}

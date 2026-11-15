@@ -133,9 +133,9 @@ def run_search(req):
             items = images_at(round(ra_now, 5), round(dec_now, 5))
         except archive.ArchiveUnavailable:
             status.update(label="NASA’s IRSA search service is not answering right now", state="error")
-            st.warning("IRSA (NASA/IPAC Infrared Science Archive) is temporarily not answering image searches. "
-                       "The five challenge targets on the left still work from saved image lists — "
-                       "or try this position again in a few minutes.")
+            st.warning("IRSA (NASA/IPAC Infrared Science Archive) is temporarily not answering image searches, "
+                       "so this position can’t be looked up right now. Challenge targets with saved image lists "
+                       "(Epsilon Indi B, RW Aurigae, R Draconis) still work — or try again in a few minutes.")
             return None
         if not items:
             status.update(label="SPHEREx has not observed this position yet", state="error")
@@ -143,7 +143,7 @@ def run_search(req):
         mid = imaging.mjd_to_year(float(np.median([i["mjd"] for i in items])))
         ra0, dec0 = (float(v) for v in imaging.propagate(tgt["ra"], tgt["dec"], tgt["pmra"], tgt["pmdec"], tgt["epoch"], mid))
         sel = imaging.select_for_blink(items, req["dets"])
-        size = req["fov"] / 60 * 1.5
+        size = imaging.cutout_size(req["fov"])
         # Gaia is optional: ask for it in the background while the images download
         gaia_job = GAIA_POOL.submit(archive.query_gaia, round(ra0, 4), round(dec0, 4), round(req["fov"] / 60 * 0.75, 4))
         status.write(f"Downloading {len(sel)} image cutouts from IRSA (cached after the first time)…")
@@ -157,7 +157,7 @@ def run_search(req):
             return None
         status.write("Adding Gaia DR3 stars…")
         try:
-            gaia = gaia_job.result(timeout=20)
+            gaia = gaia_job.result(timeout=5)
         except Exception:
             gaia = None
             status.write("Gaia DR3 is not answering right now — showing the images without Gaia circles.")

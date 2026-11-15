@@ -50,6 +50,13 @@ def make_grid(ra, dec, fov_arcmin):
     return w, (n, n)
 
 
+def cutout_size(fov_arcmin):
+    """Cutout side in degrees: 1.5x the field (room for rotation), rounded up to a few fixed sizes
+    so that cached and pre-shipped cutouts are reused across nearby field-of-view choices."""
+    need = fov_arcmin / 60 * 1.5
+    return next(s for s in (0.1, 0.15, 0.25) if s >= need - 1e-9)
+
+
 def epoch_groups(mjds):
     """Split observation times into survey visits: index lists, oldest first."""
     order = np.argsort(mjds)
